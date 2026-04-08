@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import subprocess
 from typing import Dict, List, Optional, Union
 
 from openai import OpenAI
@@ -29,7 +30,7 @@ class OpenAILLM(LLMBase):
                 top_k=config.top_k,
                 enable_vision=config.enable_vision,
                 vision_details=config.vision_details,
-                reasoning_effort=getattr(config, 'reasoning_effort', None),
+                reasoning_effort=getattr(config, "reasoning_effort", None),
                 http_client_proxies=config.http_client,
             )
 
@@ -37,6 +38,17 @@ class OpenAILLM(LLMBase):
 
         if not self.config.model:
             self.config.model = "gpt-4.1-nano-2025-04-14"
+
+        self._use_codex_cli = bool(self.config.use_codex_cli or os.getenv("MEM0_USE_CODEX_CLI") == "1")
+
+        if self._use_codex_cli:
+            self.client = None
+            self._codex_cli_command = self.config.codex_cli_command
+            if not self._codex_cli_command:
+                raise ValueError(
+                    "use_codex_cli=True requires codex_cli_command (e.g. ['codex', 'exec', '--json'])."
+                )
+            return
 
         if os.environ.get("OPENROUTER_API_KEY"):  # Use OpenRouter
             self.client = OpenAI(
@@ -52,16 +64,6 @@ class OpenAILLM(LLMBase):
             self.client = OpenAI(api_key=api_key, base_url=base_url)
 
     def _parse_response(self, response, tools):
-        """
-        Process the response based on whether tools are used or not.
-
-        Args:
-            response: The raw response from API.
-            tools: The list of tools provided in the request.
-
-        Returns:
-            str or dict: The processed response.
-        """
         if tools:
             processed_response = {
                 "content": response.choices[0].message.content,
@@ -81,6 +83,60 @@ class OpenAILLM(LLMBase):
         else:
             return response.choices[0].message.content
 
+    def _generate_response_with_codex_cli(self, params: Dict, tools: Optional[List[Dict]] = None):
+        payload = {
+            "provider": "openai",
+            "params": params,
+            "tools": tools,
+        }
+
+        completed = subprocess.run(
+            self._codex_cli_command,
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"Codex CLI command failed with code {completed.returncode}: {completed.stderr.strip() or completed.stdout.strip()}"
+            )
+
+        output = completed.stdout.strip()
+        if not output:
+            raise RuntimeError("Codex CLI command returned empty output")
+
+        parsed = json.loads(output)
+
+        if isinstance(parsed, dict) and "choices" in parsed:
+            class _Msg:
+                def __init__(self, msg):
+                    self.content = msg.get("content")
+                    self.tool_calls = msg.get("tool_calls")
+
+            class _Choice:
+                def __init__(self, choice):
+                    self.message = _Msg(choice.get("message", {}))
+
+            class _Response:
+                def __init__(self, raw):
+                    self.choices = [_Choice(raw["choices"][0])]
+
+            return self._parse_response(_Response(parsed), tools)
+
+        if isinstance(parsed, dict) and "content" in parsed:
+            if tools:
+                return {
+                    "content": parsed.get("content"),
+                    "tool_calls": parsed.get("tool_calls", []),
+                }
+            return parsed.get("content")
+
+        raise RuntimeError(
+            "Unsupported Codex CLI output format. Expected OpenAI-like {'choices': ...} or {'content': ...}."
+        )
+
     def generate_response(
         self,
         messages: List[Dict[str, str]],
@@ -89,27 +145,16 @@ class OpenAILLM(LLMBase):
         tool_choice: str = "auto",
         **kwargs,
     ):
-        """
-        Generate a JSON response based on the given messages using OpenAI.
-
-        Args:
-            messages (list): List of message dicts containing 'role' and 'content'.
-            response_format (str or object, optional): Format of the response. Defaults to "text".
-            tools (list, optional): List of tools that the model can call. Defaults to None.
-            tool_choice (str, optional): Tool choice method. Defaults to "auto".
-            **kwargs: Additional OpenAI-specific parameters.
-
-        Returns:
-            json: The generated response.
-        """
         params = self._get_supported_params(messages=messages, **kwargs)
-        
-        params.update({
-            "model": self.config.model,
-            "messages": messages,
-        })
 
-        if os.getenv("OPENROUTER_API_KEY"):
+        params.update(
+            {
+                "model": self.config.model,
+                "messages": messages,
+            }
+        )
+
+        if os.getenv("OPENROUTER_API_KEY") and not self._use_codex_cli:
             openrouter_params = {}
             if self.config.models:
                 openrouter_params["models"] = self.config.models
@@ -124,25 +169,30 @@ class OpenAILLM(LLMBase):
                 openrouter_params["extra_headers"] = extra_headers
 
             params.update(**openrouter_params)
-        
-        else:
+
+        elif not self._use_codex_cli:
             openai_specific_generation_params = ["store"]
             for param in openai_specific_generation_params:
                 if hasattr(self.config, param):
                     params[param] = getattr(self.config, param)
-            
+
         if response_format:
             params["response_format"] = response_format
         if tools:  # TODO: Remove tools if no issues found with new memory addition logic
             params["tools"] = tools
             params["tool_choice"] = tool_choice
-        response = self.client.chat.completions.create(**params)
-        parsed_response = self._parse_response(response, tools)
+
+        if self._use_codex_cli:
+            parsed_response = self._generate_response_with_codex_cli(params=params, tools=tools)
+            response = {"codex_cli": True, "raw_output": parsed_response}
+        else:
+            response = self.client.chat.completions.create(**params)
+            parsed_response = self._parse_response(response, tools)
+
         if self.config.response_callback:
             try:
                 self.config.response_callback(self, response, params)
             except Exception as e:
-                # Log error but don't propagate
                 logging.error(f"Error due to callback: {e}")
                 pass
         return parsed_response

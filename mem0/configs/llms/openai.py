@@ -30,6 +30,9 @@ class OpenAIConfig(BaseLlmConfig):
         site_url: Optional[str] = None,
         app_name: Optional[str] = None,
         store: bool = False,
+        # Codex CLI passthrough (for OpenAI OAuth auth flows)
+        use_codex_cli: bool = False,
+        codex_cli_command: Optional[List[str]] = None,
         # Response monitoring callback
         response_callback: Optional[Callable[[Any, dict, dict], None]] = None,
     ):
@@ -53,6 +56,8 @@ class OpenAIConfig(BaseLlmConfig):
             openrouter_base_url: OpenRouter base URL, defaults to None
             site_url: Site URL for OpenRouter, defaults to None
             app_name: Application name for OpenRouter, defaults to None
+            use_codex_cli: Route requests through a Codex CLI command instead of direct OpenAI API calls
+            codex_cli_command: Command argv for Codex CLI invocation (e.g. ["codex", "exec", "--json"])
             response_callback: Optional callback for monitoring LLM responses.
         """
         # Initialize base parameters
@@ -77,6 +82,10 @@ class OpenAIConfig(BaseLlmConfig):
         self.site_url = site_url
         self.app_name = app_name
         self.store = store
+
+        # Codex CLI passthrough
+        self.use_codex_cli = use_codex_cli
+        self.codex_cli_command = codex_cli_command
 
         # Response monitoring
         self.response_callback = response_callback
