@@ -268,3 +268,41 @@ def test_callback_with_tools(mock_openai_client):
     mock_callback.assert_called_once()
     # Check that tool_calls exists in the message
     assert hasattr(mock_callback.call_args[0][1].choices[0].message, 'tool_calls')
+
+
+def test_codex_cli_mode_requires_command():
+    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", use_codex_cli=True)
+    with pytest.raises(ValueError, match="codex_cli_command"):
+        OpenAILLM(config)
+
+
+@patch("mem0.llms.openai.subprocess.run")
+def test_generate_response_with_codex_cli(mock_subprocess_run):
+    mock_subprocess_run.return_value = Mock(returncode=0, stdout='{"content": "via codex"}', stderr="")
+
+    config = OpenAIConfig(
+        model="gpt-4.1-nano-2025-04-14",
+        use_codex_cli=True,
+        codex_cli_command=["codex", "exec", "--json"],
+    )
+    llm = OpenAILLM(config)
+
+    response = llm.generate_response([{"role": "user", "content": "hello"}])
+
+    assert response == "via codex"
+    mock_subprocess_run.assert_called_once()
+
+
+@patch("mem0.llms.openai.subprocess.run")
+def test_generate_response_with_codex_cli_failure(mock_subprocess_run):
+    mock_subprocess_run.return_value = Mock(returncode=1, stdout="", stderr="boom")
+
+    config = OpenAIConfig(
+        model="gpt-4.1-nano-2025-04-14",
+        use_codex_cli=True,
+        codex_cli_command=["codex", "exec", "--json"],
+    )
+    llm = OpenAILLM(config)
+
+    with pytest.raises(RuntimeError, match="Codex CLI command failed"):
+        llm.generate_response([{"role": "user", "content": "hello"}])

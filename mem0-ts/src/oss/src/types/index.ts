@@ -48,6 +48,8 @@ export interface LLMConfig {
   apiKey?: string;
   model?: string | any;
   modelProperties?: Record<string, any>;
+  useCodexCLI?: boolean;
+  codexCLICommand?: string[];
 }
 
 export interface Neo4jConfig {
@@ -145,6 +147,8 @@ export const MemoryConfigSchema = z.object({
       modelProperties: z.record(z.string(), z.any()).optional(),
       baseURL: z.string().optional(),
       url: z.string().optional(),
+      useCodexCLI: z.boolean().optional(),
+      codexCLICommand: z.array(z.string()).optional(),
     }),
   }),
   historyDbPath: z.string().optional(),
