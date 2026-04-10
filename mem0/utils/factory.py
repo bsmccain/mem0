@@ -6,6 +6,7 @@ from mem0.configs.llms.anthropic import AnthropicConfig
 from mem0.configs.llms.aws_bedrock import AWSBedrockConfig
 from mem0.configs.llms.azure import AzureOpenAIConfig
 from mem0.configs.llms.base import BaseLlmConfig
+from mem0.configs.llms.codex import CodexConfig
 from mem0.configs.llms.deepseek import DeepSeekConfig
 from mem0.configs.llms.minimax import MinimaxConfig
 from mem0.configs.llms.lmstudio import LMStudioConfig
@@ -53,6 +54,7 @@ class LlmFactory:
         "lmstudio": ("mem0.llms.lmstudio.LMStudioLLM", LMStudioConfig),
         "vllm": ("mem0.llms.vllm.VllmLLM", VllmConfig),
         "langchain": ("mem0.llms.langchain.LangchainLLM", BaseLlmConfig),
+        "codex": ("mem0.llms.codex.CodexLLM", CodexConfig),
     }
 
     @classmethod

@@ -30,6 +30,7 @@ import { GoogleEmbedder } from "../embeddings/google";
 import { GoogleLLM } from "../llms/google";
 import { AzureOpenAILLM } from "../llms/azure";
 import { AzureOpenAIEmbedder } from "../embeddings/azure";
+import { CodexLLM } from "../llms/codex";
 import { LangchainLLM } from "../llms/langchain";
 import { LangchainEmbedder } from "../embeddings/langchain";
 import { LangchainVectorStore } from "../vector_stores/langchain";
@@ -82,6 +83,8 @@ export class LLMFactory {
         return new MistralLLM(config);
       case "langchain":
         return new LangchainLLM(config);
+      case "codex":
+        return new CodexLLM(config);
       default:
         throw new Error(`Unsupported LLM provider: ${provider}`);
     }
